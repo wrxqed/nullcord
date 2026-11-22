@@ -5,6 +5,8 @@ import { getMessagesForChannel } from '../service.js';
 interface ListMessagesQuery {
   limit?: string;
   before?: string;
+  after?: string;
+  around?: string;
 }
 
 export const listMessagesRoute: FastifyPluginAsync = async (fastify) => {
@@ -13,12 +15,12 @@ export const listMessagesRoute: FastifyPluginAsync = async (fastify) => {
     async (request) => {
       const user = requireAuthUser(request);
       const parsedLimit = request.query.limit ? Number(request.query.limit) : undefined;
-      return getMessagesForChannel(
-        request.params.channelId,
-        user.id,
-        Number.isFinite(parsedLimit) ? parsedLimit : undefined,
-        request.query.before,
-      );
+      return getMessagesForChannel(request.params.channelId, user.id, {
+        limit: Number.isFinite(parsedLimit) ? parsedLimit : undefined,
+        before: request.query.before,
+        after: request.query.after,
+        around: request.query.around,
+      });
     },
   );
 };

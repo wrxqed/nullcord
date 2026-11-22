@@ -85,6 +85,7 @@ function applySchema(db: DatabaseSync): void {
       content TEXT NOT NULL,
       nonce TEXT,
       tts INTEGER NOT NULL DEFAULT 0,
+      referenced_message_id TEXT,
       timestamp TEXT NOT NULL,
       edited_timestamp TEXT
     );
@@ -99,6 +100,7 @@ function applySchema(db: DatabaseSync): void {
   `);
 
   ensureColumn(db, 'users', 'date_of_birth', 'TEXT');
+  ensureColumn(db, 'messages', 'referenced_message_id', 'TEXT');
 }
 
 export function getDatabase(): DatabaseSync {

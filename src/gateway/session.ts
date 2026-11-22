@@ -3,6 +3,7 @@ import { constants, createDeflate, type Deflate } from 'node:zlib';
 import type { WebSocket } from 'ws';
 import { GatewayCloseCode, type GatewayCloseCodeValue } from './closeCodes.js';
 import { GatewayOpcode } from './opcodes.js';
+import { recordSessionEvent } from './resumeStore.js';
 import type { GatewayPayload } from './types.js';
 
 export class GatewaySession {
@@ -49,7 +50,7 @@ export class GatewaySession {
 
   public refreshHeartbeatDeadline(): void {
     this.clearHeartbeatTimer();
-    const timeoutMs = Math.floor(this.heartbeatIntervalMs * 1.5);
+    const timeoutMs = Math.max(Math.floor(this.heartbeatIntervalMs * 3), 120_000);
     this.heartbeatTimer = setTimeout(() => {
       this.close(GatewayCloseCode.SESSION_TIMED_OUT, 'Session timed out');
     }, timeoutMs);
@@ -75,6 +76,9 @@ export class GatewaySession {
 
   public dispatch<T>(eventName: string, data: T): void {
     this.sequence += 1;
+    if (this.identified) {
+      recordSessionEvent(this.sessionId, this.sequence, eventName, data);
+    }
     this.send({
       op: GatewayOpcode.DISPATCH,
       s: this.sequence,

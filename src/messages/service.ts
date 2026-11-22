@@ -12,11 +12,18 @@ import { incrementChannelUnread, upsertReadState } from './readStateRepository.j
 import {
   deleteMessageRecord,
   findMessageById,
+  findMessagesByIds,
   insertMessage,
   listChannelMessages,
   updateMessageContent,
+  type MessageQueryOptions,
   type MessageRecord,
 } from './repository.js';
+
+export interface MessageReferenceDto {
+  message_id: string;
+  channel_id: string;
+}
 
 export interface MessageDto {
   id: string;
@@ -35,10 +42,16 @@ export interface MessageDto {
   type: number;
   flags: number;
   nonce?: string;
+  message_reference?: MessageReferenceDto;
+  referenced_message?: MessageDto | null;
 }
 
-function serializeMessage(record: MessageRecord, author: UserRecord): MessageDto {
-  const base: MessageDto = {
+const MESSAGE_TYPE_DEFAULT = 0;
+const MESSAGE_TYPE_REPLY = 19;
+
+function buildBaseMessageDto(record: MessageRecord, author: UserRecord): MessageDto {
+  const isReply = record.referenced_message_id !== null;
+  const dto: MessageDto = {
     id: record.id,
     channel_id: record.channel_id,
     author: serializePublicUser(author),
@@ -52,15 +65,70 @@ function serializeMessage(record: MessageRecord, author: UserRecord): MessageDto
     attachments: [],
     embeds: [],
     pinned: false,
-    type: 0,
+    type: isReply ? MESSAGE_TYPE_REPLY : MESSAGE_TYPE_DEFAULT,
     flags: 0,
   };
 
   if (record.nonce !== null) {
-    base.nonce = record.nonce;
+    dto.nonce = record.nonce;
   }
 
-  return base;
+  if (record.referenced_message_id !== null) {
+    dto.message_reference = {
+      message_id: record.referenced_message_id,
+      channel_id: record.channel_id,
+    };
+  }
+
+  return dto;
+}
+
+function hydrateMessages(channelId: string, records: MessageRecord[]): MessageDto[] {
+  if (records.length === 0) {
+    return [];
+  }
+
+  const refIds = [
+    ...new Set(
+      records
+        .map((r) => r.referenced_message_id)
+        .filter((id): id is string => id !== null),
+    ),
+  ];
+
+  const refRecords = findMessagesByIds(channelId, refIds);
+  const refMap = new Map(refRecords.map((r) => [r.id, r]));
+
+  const authorIds = new Set<string>();
+  for (const record of records) {
+    authorIds.add(record.author_id);
+  }
+  for (const ref of refRecords) {
+    authorIds.add(ref.author_id);
+  }
+
+  const authors = findUsersByIds([...authorIds]);
+  const authorMap = new Map(authors.map((u) => [u.id, u]));
+
+  const dtos: MessageDto[] = [];
+  for (const record of records) {
+    const author = authorMap.get(record.author_id);
+    if (!author) {
+      continue;
+    }
+
+    const dto = buildBaseMessageDto(record, author);
+    if (record.referenced_message_id !== null) {
+      const refRecord = refMap.get(record.referenced_message_id);
+      const refAuthor = refRecord ? authorMap.get(refRecord.author_id) : undefined;
+      dto.referenced_message =
+        refRecord && refAuthor ? buildBaseMessageDto(refRecord, refAuthor) : null;
+    }
+
+    dtos.push(dto);
+  }
+
+  return dtos;
 }
 
 function assertChannelAccess(channelId: string, userId: string): void {
@@ -72,30 +140,19 @@ function assertChannelAccess(channelId: string, userId: string): void {
 export function getMessagesForChannel(
   channelId: string,
   userId: string,
-  rawLimit?: number,
-  before?: string,
+  options: Omit<MessageQueryOptions, 'limit'> & { limit?: number },
 ): MessageDto[] {
   assertChannelAccess(channelId, userId);
 
-  const limit = Math.min(Math.max(rawLimit ?? 50, 1), 100);
-  const records = listChannelMessages(channelId, limit, before);
-  if (records.length === 0) {
-    return [];
-  }
+  const limit = Math.min(Math.max(options.limit ?? 50, 1), 100);
+  const records = listChannelMessages(channelId, {
+    limit,
+    before: options.before,
+    after: options.after,
+    around: options.around,
+  });
 
-  const authorIds = [...new Set(records.map((r) => r.author_id))];
-  const authors = findUsersByIds(authorIds);
-  const authorMap = new Map(authors.map((u) => [u.id, u]));
-
-  const dtos: MessageDto[] = [];
-  for (const record of records) {
-    const author = authorMap.get(record.author_id);
-    if (!author) {
-      continue;
-    }
-    dtos.push(serializeMessage(record, author));
-  }
-  return dtos;
+  return hydrateMessages(channelId, records);
 }
 
 export function sendMessageToChannel(
@@ -104,11 +161,16 @@ export function sendMessageToChannel(
   content: string,
   nonce: string | null,
   tts: boolean,
+  referencedMessageId: string | null,
 ): MessageDto {
   assertChannelAccess(channelId, author.id);
 
   const trimmed = content.trim();
   if (trimmed.length === 0 || trimmed.length > 2000) {
+    throw new DiscordApiError(400, 50035, 'Invalid Form Body');
+  }
+
+  if (referencedMessageId !== null && findMessageById(channelId, referencedMessageId) === null) {
     throw new DiscordApiError(400, 50035, 'Invalid Form Body');
   }
 
@@ -120,12 +182,17 @@ export function sendMessageToChannel(
     content: trimmed,
     nonce,
     tts,
+    referencedMessageId,
     timestamp: new Date().toISOString(),
   });
 
   updateChannelLastMessageId(channelId, messageId);
 
-  const dto = serializeMessage(record, author);
+  const dto = hydrateMessages(channelId, [record])[0];
+  if (!dto) {
+    throw new Error('Failed to serialize created message');
+  }
+
   const recipientIds = getChannelRecipientIds(channelId);
   upsertReadState(author.id, channelId, messageId, 0);
   incrementChannelUnread(recipientIds, author.id, channelId);
@@ -161,7 +228,11 @@ export function editChannelMessage(
     throw new DiscordApiError(404, 10008, 'Unknown Message');
   }
 
-  const dto = serializeMessage(updated, author);
+  const dto = hydrateMessages(channelId, [updated])[0];
+  if (!dto) {
+    throw new Error('Failed to serialize updated message');
+  }
+
   const recipientIds = getChannelRecipientIds(channelId);
   dispatchToUsers(recipientIds, 'MESSAGE_UPDATE', dto);
 

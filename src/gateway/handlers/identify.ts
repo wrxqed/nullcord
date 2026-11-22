@@ -11,6 +11,7 @@ import {
   getFriendsPresences,
   setSessionPresence,
 } from '../presenceService.js';
+import { initResumableSession } from '../resumeStore.js';
 import { registerUserSession } from '../sessionRegistry.js';
 import type { GatewayOpcodeHandler } from '../types.js';
 
@@ -53,6 +54,7 @@ export const handleIdentify: GatewayOpcodeHandler = (session, payload) => {
   session.userId = user.id;
   session.intents = intents;
   setSessionPresence(session, data.presence?.status, data.presence?.activities);
+  initResumableSession(session.sessionId, user.id, intents, session.status, session.activities);
   registerUserSession(user.id, session);
 
   const relData = getUserRelationships(user.id);

@@ -6,6 +6,9 @@ interface CreateMessageBody {
   content?: unknown;
   nonce?: unknown;
   tts?: unknown;
+  message_reference?: {
+    message_id?: unknown;
+  } | null;
 }
 
 export const createMessageRoute: FastifyPluginAsync = async (fastify) => {
@@ -20,8 +23,19 @@ export const createMessageRoute: FastifyPluginAsync = async (fastify) => {
           ? String(body.nonce)
           : null;
       const tts = Boolean(body.tts);
+      const referencedMessageId =
+        body.message_reference && typeof body.message_reference.message_id === 'string'
+          ? body.message_reference.message_id
+          : null;
 
-      return sendMessageToChannel(request.params.channelId, user, content, nonce, tts);
+      return sendMessageToChannel(
+        request.params.channelId,
+        user,
+        content,
+        nonce,
+        tts,
+        referencedMessageId,
+      );
     },
   );
 };

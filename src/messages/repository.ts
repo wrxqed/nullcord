@@ -7,6 +7,7 @@ export interface MessageRecord {
   content: string;
   nonce: string | null;
   tts: number;
+  referenced_message_id: string | null;
   timestamp: string;
   edited_timestamp: string | null;
 }
@@ -18,14 +19,32 @@ export interface CreateMessageRecordInput {
   content: string;
   nonce: string | null;
   tts: boolean;
+  referencedMessageId: string | null;
   timestamp: string;
+}
+
+export interface MessageQueryOptions {
+  limit: number;
+  before?: string;
+  after?: string;
+  around?: string;
 }
 
 export function insertMessage(input: CreateMessageRecordInput): MessageRecord {
   const db = getDatabase();
   db.prepare(`
-    INSERT INTO messages (id, channel_id, author_id, content, nonce, tts, timestamp, edited_timestamp)
-    VALUES (?, ?, ?, ?, ?, ?, ?, NULL)
+    INSERT INTO messages (
+      id,
+      channel_id,
+      author_id,
+      content,
+      nonce,
+      tts,
+      referenced_message_id,
+      timestamp,
+      edited_timestamp
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)
   `).run(
     input.id,
     input.channelId,
@@ -33,6 +52,7 @@ export function insertMessage(input: CreateMessageRecordInput): MessageRecord {
     input.content,
     input.nonce,
     input.tts ? 1 : 0,
+    input.referencedMessageId,
     input.timestamp,
   );
 
@@ -51,13 +71,60 @@ export function findMessageById(channelId: string, messageId: string): MessageRe
   return (row as MessageRecord | undefined) ?? null;
 }
 
+export function findMessagesByIds(channelId: string, messageIds: string[]): MessageRecord[] {
+  if (messageIds.length === 0) {
+    return [];
+  }
+  const db = getDatabase();
+  const placeholders = messageIds.map(() => '?').join(', ');
+  const rows = db
+    .prepare(`SELECT * FROM messages WHERE channel_id = ? AND id IN (${placeholders})`)
+    .all(channelId, ...messageIds);
+  return rows as unknown as MessageRecord[];
+}
+
 export function listChannelMessages(
   channelId: string,
-  limit: number,
-  before?: string,
+  options: MessageQueryOptions,
 ): MessageRecord[] {
   const db = getDatabase();
-  if (before) {
+
+  if (options.around) {
+    const half = Math.max(Math.floor(options.limit / 2), 1);
+    const newer = db
+      .prepare(`
+        SELECT * FROM messages
+        WHERE channel_id = ? AND CAST(id AS INTEGER) > CAST(? AS INTEGER)
+        ORDER BY CAST(id AS INTEGER) ASC
+        LIMIT ?
+      `)
+      .all(channelId, options.around, half) as unknown as MessageRecord[];
+
+    const olderAndTarget = db
+      .prepare(`
+        SELECT * FROM messages
+        WHERE channel_id = ? AND CAST(id AS INTEGER) <= CAST(? AS INTEGER)
+        ORDER BY CAST(id AS INTEGER) DESC
+        LIMIT ?
+      `)
+      .all(channelId, options.around, options.limit - newer.length) as unknown as MessageRecord[];
+
+    return [...newer.reverse(), ...olderAndTarget];
+  }
+
+  if (options.after) {
+    const rows = db
+      .prepare(`
+        SELECT * FROM messages
+        WHERE channel_id = ? AND CAST(id AS INTEGER) > CAST(? AS INTEGER)
+        ORDER BY CAST(id AS INTEGER) ASC
+        LIMIT ?
+      `)
+      .all(channelId, options.after, options.limit) as unknown as MessageRecord[];
+    return rows.reverse();
+  }
+
+  if (options.before) {
     const rows = db
       .prepare(`
         SELECT * FROM messages
@@ -65,7 +132,7 @@ export function listChannelMessages(
         ORDER BY CAST(id AS INTEGER) DESC
         LIMIT ?
       `)
-      .all(channelId, before, limit);
+      .all(channelId, options.before, options.limit);
     return rows as unknown as MessageRecord[];
   }
 
@@ -76,7 +143,7 @@ export function listChannelMessages(
       ORDER BY CAST(id AS INTEGER) DESC
       LIMIT ?
     `)
-    .all(channelId, limit);
+    .all(channelId, options.limit);
   return rows as unknown as MessageRecord[];
 }
 
