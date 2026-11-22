@@ -17,6 +17,14 @@ export function listRelationshipsByUser(userId: string): RelationshipRecord[] {
   return rows as unknown as RelationshipRecord[];
 }
 
+export function listFriendIds(userId: string): string[] {
+  const db = getDatabase();
+  const rows = db
+    .prepare('SELECT to_id FROM relationships WHERE from_id = ? AND type = 1')
+    .all(userId) as Array<{ to_id: string }>;
+  return rows.map((row) => row.to_id);
+}
+
 export function upsertRelationship(
   fromId: string,
   toId: string,

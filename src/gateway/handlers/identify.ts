@@ -1,16 +1,26 @@
 import { verifyToken } from '../../auth/token.js';
 import { listUserDmChannels } from '../../channels/dmService.js';
 import { env } from '../../config/env.js';
+import { listReadStateEntries } from '../../messages/readStateRepository.js';
 import { getUserRelationships } from '../../relationships/service.js';
 import { findUserById, type UserRecord } from '../../users/userRepository.js';
 import { serializePublicUser, serializeSelfUser } from '../../users/userSerializer.js';
 import { GatewayCloseCode } from '../closeCodes.js';
+import {
+  broadcastPresenceUpdate,
+  getFriendsPresences,
+  setSessionPresence,
+} from '../presenceService.js';
 import { registerUserSession } from '../sessionRegistry.js';
 import type { GatewayOpcodeHandler } from '../types.js';
 
 interface IdentifyData {
   token?: unknown;
   intents?: unknown;
+  presence?: {
+    status?: unknown;
+    activities?: unknown;
+  };
 }
 
 export const handleIdentify: GatewayOpcodeHandler = (session, payload) => {
@@ -42,10 +52,13 @@ export const handleIdentify: GatewayOpcodeHandler = (session, payload) => {
   session.identified = true;
   session.userId = user.id;
   session.intents = intents;
+  setSessionPresence(session, data.presence?.status, data.presence?.activities);
   registerUserSession(user.id, session);
 
   const relData = getUserRelationships(user.id);
   const dmData = listUserDmChannels(user.id);
+  const readStates = listReadStateEntries(user.id);
+  const friendPresences = getFriendsPresences(user.id);
 
   const relatedUsersMap = new Map<string, UserRecord>();
   for (const related of relData.users) {
@@ -65,7 +78,7 @@ export const handleIdentify: GatewayOpcodeHandler = (session, payload) => {
     guilds: [],
     relationships: relData.relationships,
     read_state: {
-      entries: [],
+      entries: readStates,
       partial: false,
       version: 0,
     },
@@ -75,7 +88,7 @@ export const handleIdentify: GatewayOpcodeHandler = (session, payload) => {
       version: 0,
     },
     private_channels: dmData.channels,
-    presences: [],
+    presences: friendPresences,
     users: [...relatedUsersMap.values()].map(serializePublicUser),
     merged_members: [],
     sessions: [],
@@ -109,4 +122,6 @@ export const handleIdentify: GatewayOpcodeHandler = (session, payload) => {
       flags: 0,
     },
   });
+
+  broadcastPresenceUpdate(user.id);
 };

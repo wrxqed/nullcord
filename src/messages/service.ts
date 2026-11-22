@@ -8,6 +8,7 @@ import { generateSnowflake } from '../common/snowflake.js';
 import { dispatchToUsers } from '../gateway/sessionRegistry.js';
 import { findUsersByIds, type UserRecord } from '../users/userRepository.js';
 import { serializePublicUser, type PublicUserDto } from '../users/userSerializer.js';
+import { incrementChannelUnread, upsertReadState } from './readStateRepository.js';
 import {
   deleteMessageRecord,
   findMessageById,
@@ -126,6 +127,8 @@ export function sendMessageToChannel(
 
   const dto = serializeMessage(record, author);
   const recipientIds = getChannelRecipientIds(channelId);
+  upsertReadState(author.id, channelId, messageId, 0);
+  incrementChannelUnread(recipientIds, author.id, channelId);
   dispatchToUsers(recipientIds, 'MESSAGE_CREATE', dto);
 
   return dto;

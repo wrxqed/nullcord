@@ -88,6 +88,14 @@ function applySchema(db: DatabaseSync): void {
       timestamp TEXT NOT NULL,
       edited_timestamp TEXT
     );
+
+    CREATE TABLE IF NOT EXISTS read_states (
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      channel_id TEXT NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
+      last_message_id TEXT NOT NULL,
+      mention_count INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (user_id, channel_id)
+    );
   `);
 
   ensureColumn(db, 'users', 'date_of_birth', 'TEXT');

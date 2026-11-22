@@ -27,6 +27,11 @@ export function unregisterSession(session: GatewaySession): void {
   }
 }
 
+export function getUserSessions(userId: string): GatewaySession[] {
+  const set = sessionsByUser.get(userId);
+  return set ? [...set] : [];
+}
+
 export function dispatchToUser<T>(userId: string, eventName: string, data: T): void {
   const set = sessionsByUser.get(userId);
   if (!set) {

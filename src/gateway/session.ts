@@ -12,6 +12,8 @@ export class GatewaySession {
   public identified = false;
   public userId: string | null = null;
   public intents = 0;
+  public status = 'online';
+  public activities: unknown[] = [];
 
   private readonly heartbeatIntervalMs: number;
   private readonly useZlibStream: boolean;
