@@ -1,0 +1,10 @@
+client/
+reference/
+AGENTS.md
+node_modules/
+dist/
+data/
+*.db
+*.db-wal
+*.db-shm
+.env
