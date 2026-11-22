@@ -1,4 +1,5 @@
 import type { FastifyPluginAsync } from 'fastify';
+import type { UploadedAttachmentRef } from '../../attachments/attachmentService.js';
 import { requireAuthUser } from '../../auth/authGuard.js';
 import { sendMessageToChannel } from '../service.js';
 
@@ -6,6 +7,7 @@ interface CreateMessageBody {
   content?: unknown;
   nonce?: unknown;
   tts?: unknown;
+  attachments?: UploadedAttachmentRef[];
   message_reference?: {
     message_id?: unknown;
   } | null;
@@ -27,6 +29,7 @@ export const createMessageRoute: FastifyPluginAsync = async (fastify) => {
         body.message_reference && typeof body.message_reference.message_id === 'string'
           ? body.message_reference.message_id
           : null;
+      const attachments = Array.isArray(body.attachments) ? body.attachments : [];
 
       return sendMessageToChannel(
         request.params.channelId,
@@ -35,6 +38,7 @@ export const createMessageRoute: FastifyPluginAsync = async (fastify) => {
         nonce,
         tts,
         referencedMessageId,
+        attachments,
       );
     },
   );

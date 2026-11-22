@@ -1,4 +1,10 @@
 import {
+  buildAttachmentsByMessage,
+  saveMessageAttachments,
+  type AttachmentDto,
+  type UploadedAttachmentRef,
+} from '../attachments/attachmentService.js';
+import {
   getChannelRecipientIds,
   isChannelRecipient,
   updateChannelLastMessageId,
@@ -8,6 +14,7 @@ import { generateSnowflake } from '../common/snowflake.js';
 import { dispatchToUsers } from '../gateway/sessionRegistry.js';
 import { findUsersByIds, type UserRecord } from '../users/userRepository.js';
 import { serializePublicUser, type PublicUserDto } from '../users/userSerializer.js';
+import { buildReactionsByMessage, type ReactionDto } from './reactionService.js';
 import { incrementChannelUnread, upsertReadState } from './readStateRepository.js';
 import {
   deleteMessageRecord,
@@ -36,12 +43,13 @@ export interface MessageDto {
   mention_everyone: boolean;
   mentions: PublicUserDto[];
   mention_roles: string[];
-  attachments: unknown[];
+  attachments: AttachmentDto[];
   embeds: unknown[];
   pinned: boolean;
   type: number;
   flags: number;
   nonce?: string;
+  reactions?: ReactionDto[];
   message_reference?: MessageReferenceDto;
   referenced_message?: MessageDto | null;
 }
@@ -49,7 +57,12 @@ export interface MessageDto {
 const MESSAGE_TYPE_DEFAULT = 0;
 const MESSAGE_TYPE_REPLY = 19;
 
-function buildBaseMessageDto(record: MessageRecord, author: UserRecord): MessageDto {
+function buildBaseMessageDto(
+  record: MessageRecord,
+  author: UserRecord,
+  attachments: AttachmentDto[],
+  reactions?: ReactionDto[],
+): MessageDto {
   const isReply = record.referenced_message_id !== null;
   const dto: MessageDto = {
     id: record.id,
@@ -62,7 +75,7 @@ function buildBaseMessageDto(record: MessageRecord, author: UserRecord): Message
     mention_everyone: false,
     mentions: [],
     mention_roles: [],
-    attachments: [],
+    attachments,
     embeds: [],
     pinned: false,
     type: isReply ? MESSAGE_TYPE_REPLY : MESSAGE_TYPE_DEFAULT,
@@ -71,6 +84,10 @@ function buildBaseMessageDto(record: MessageRecord, author: UserRecord): Message
 
   if (record.nonce !== null) {
     dto.nonce = record.nonce;
+  }
+
+  if (reactions && reactions.length > 0) {
+    dto.reactions = reactions;
   }
 
   if (record.referenced_message_id !== null) {
@@ -83,7 +100,11 @@ function buildBaseMessageDto(record: MessageRecord, author: UserRecord): Message
   return dto;
 }
 
-function hydrateMessages(channelId: string, records: MessageRecord[]): MessageDto[] {
+function hydrateMessages(
+  channelId: string,
+  records: MessageRecord[],
+  viewerId?: string,
+): MessageDto[] {
   if (records.length === 0) {
     return [];
   }
@@ -98,6 +119,13 @@ function hydrateMessages(channelId: string, records: MessageRecord[]): MessageDt
 
   const refRecords = findMessagesByIds(channelId, refIds);
   const refMap = new Map(refRecords.map((r) => [r.id, r]));
+
+  const allMessageIds = [...new Set([...records.map((r) => r.id), ...refRecords.map((r) => r.id)])];
+  const attachmentsByMessage = buildAttachmentsByMessage(allMessageIds);
+  const reactionsByMessage = buildReactionsByMessage(
+    records.map((r) => r.id),
+    viewerId,
+  );
 
   const authorIds = new Set<string>();
   for (const record of records) {
@@ -117,12 +145,24 @@ function hydrateMessages(channelId: string, records: MessageRecord[]): MessageDt
       continue;
     }
 
-    const dto = buildBaseMessageDto(record, author);
+    const dto = buildBaseMessageDto(
+      record,
+      author,
+      attachmentsByMessage.get(record.id) ?? [],
+      reactionsByMessage.get(record.id),
+    );
+
     if (record.referenced_message_id !== null) {
       const refRecord = refMap.get(record.referenced_message_id);
       const refAuthor = refRecord ? authorMap.get(refRecord.author_id) : undefined;
       dto.referenced_message =
-        refRecord && refAuthor ? buildBaseMessageDto(refRecord, refAuthor) : null;
+        refRecord && refAuthor
+          ? buildBaseMessageDto(
+              refRecord,
+              refAuthor,
+              attachmentsByMessage.get(refRecord.id) ?? [],
+            )
+          : null;
     }
 
     dtos.push(dto);
@@ -152,7 +192,7 @@ export function getMessagesForChannel(
     around: options.around,
   });
 
-  return hydrateMessages(channelId, records);
+  return hydrateMessages(channelId, records, userId);
 }
 
 export function sendMessageToChannel(
@@ -162,11 +202,12 @@ export function sendMessageToChannel(
   nonce: string | null,
   tts: boolean,
   referencedMessageId: string | null,
+  attachments: UploadedAttachmentRef[] = [],
 ): MessageDto {
   assertChannelAccess(channelId, author.id);
 
   const trimmed = content.trim();
-  if (trimmed.length === 0 || trimmed.length > 2000) {
+  if ((trimmed.length === 0 && attachments.length === 0) || trimmed.length > 2000) {
     throw new DiscordApiError(400, 50035, 'Invalid Form Body');
   }
 
@@ -186,9 +227,10 @@ export function sendMessageToChannel(
     timestamp: new Date().toISOString(),
   });
 
+  saveMessageAttachments(messageId, attachments);
   updateChannelLastMessageId(channelId, messageId);
 
-  const dto = hydrateMessages(channelId, [record])[0];
+  const dto = hydrateMessages(channelId, [record], author.id)[0];
   if (!dto) {
     throw new Error('Failed to serialize created message');
   }
@@ -228,7 +270,7 @@ export function editChannelMessage(
     throw new DiscordApiError(404, 10008, 'Unknown Message');
   }
 
-  const dto = hydrateMessages(channelId, [updated])[0];
+  const dto = hydrateMessages(channelId, [updated], author.id)[0];
   if (!dto) {
     throw new Error('Failed to serialize updated message');
   }

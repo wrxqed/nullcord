@@ -59,6 +59,7 @@ function applySchema(db: DatabaseSync): void {
       topic TEXT,
       position INTEGER NOT NULL DEFAULT 0,
       parent_id TEXT,
+      owner_id TEXT,
       last_message_id TEXT,
       created_at INTEGER NOT NULL
     );
@@ -97,10 +98,35 @@ function applySchema(db: DatabaseSync): void {
       mention_count INTEGER NOT NULL DEFAULT 0,
       PRIMARY KEY (user_id, channel_id)
     );
+
+    CREATE TABLE IF NOT EXISTS message_reactions (
+      message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+      channel_id TEXT NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      emoji_key TEXT NOT NULL,
+      emoji_id TEXT,
+      emoji_name TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      PRIMARY KEY (message_id, user_id, emoji_key)
+    );
+
+    CREATE TABLE IF NOT EXISTS message_attachments (
+      id TEXT PRIMARY KEY,
+      message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+      filename TEXT NOT NULL,
+      uploaded_filename TEXT NOT NULL,
+      size INTEGER NOT NULL,
+      content_type TEXT,
+      width INTEGER,
+      height INTEGER
+    );
   `);
 
   ensureColumn(db, 'users', 'date_of_birth', 'TEXT');
+  ensureColumn(db, 'channels', 'owner_id', 'TEXT');
   ensureColumn(db, 'messages', 'referenced_message_id', 'TEXT');
+  ensureColumn(db, 'message_attachments', 'width', 'INTEGER');
+  ensureColumn(db, 'message_attachments', 'height', 'INTEGER');
 }
 
 export function getDatabase(): DatabaseSync {

@@ -8,4 +8,11 @@ export const settingsProtoRoute: FastifyPluginAsync = async (fastify) => {
       settings: '',
     };
   });
+
+  fastify.patch('/users/@me/settings-proto/:type', async (request) => {
+    requireAuthUser(request);
+    return {
+      settings: '',
+    };
+  });
 };
