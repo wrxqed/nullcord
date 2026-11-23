@@ -6,6 +6,7 @@ import { uploadAttachmentRoute } from '../attachments/routes/uploadAttachment.js
 import { conditionalStartRoute } from '../auth/routes/conditionalStart.js';
 import { locationMetadataRoute } from '../auth/routes/locationMetadata.js';
 import { loginRoute } from '../auth/routes/login.js';
+import { logoutRoute } from '../auth/routes/logout.js';
 import { registerRoute } from '../auth/routes/register.js';
 import { addRecipientRoute } from '../channels/routes/addRecipient.js';
 import { closeDmChannelRoute } from '../channels/routes/closeDmChannel.js';
@@ -29,20 +30,33 @@ import { deleteRelationshipRoute } from '../relationships/routes/deleteRelations
 import { listRelationshipsRoute } from '../relationships/routes/listRelationships.js';
 import { putRelationshipRoute } from '../relationships/routes/putRelationship.js';
 import { sendFriendRequestRoute } from '../relationships/routes/sendFriendRequest.js';
+import { activityStatsRoute } from '../users/routes/activityStats.js';
 import { affinitiesGuildsRoute } from '../users/routes/affinitiesGuilds.js';
 import { applicationEntitlementsRoute } from '../users/routes/applicationEntitlements.js';
+import { applicationIdentitiesRoute } from '../users/routes/applicationIdentities.js';
+import { billingRoute } from '../users/routes/billing.js';
+import { deleteAccountRoute } from '../users/routes/deleteAccount.js';
+import { disableAccountRoute } from '../users/routes/disableAccount.js';
 import { entitlementsRoute } from '../users/routes/entitlements.js';
+import { getAvatarRoute } from '../users/routes/getAvatar.js';
+import { getBannerRoute } from '../users/routes/getBanner.js';
 import { getMeRoute } from '../users/routes/getMe.js';
 import { getUserProfileRoute } from '../users/routes/getUserProfile.js';
+import { meaningfullyOnlineRoute } from '../users/routes/meaningfullyOnline.js';
 import { notesRoute } from '../users/routes/notes.js';
 import { pomeloAttemptRoute } from '../users/routes/pomeloAttempt.js';
+import { recentAvatarsRoute } from '../users/routes/recentAvatars.js';
 import { referralsEligibilityRoute } from '../users/routes/referralsEligibility.js';
 import { settingsProtoRoute } from '../users/routes/settingsProto.js';
 import { surveyRoute } from '../users/routes/survey.js';
 import { updateMeRoute } from '../users/routes/updateMe.js';
+import { updateProfileRoute } from '../users/routes/updateProfile.js';
 import { usernameAttemptUnauthedRoute } from '../users/routes/usernameAttemptUnauthed.js';
 import { usernameSuggestionsUnauthedRoute } from '../users/routes/usernameSuggestionsUnauthed.js';
 import { apexExperimentsRoute } from './routes/apexExperiments.js';
+import { beakerRoute } from './routes/beaker.js';
+import { collectiblesShopRoute } from './routes/collectiblesShop.js';
+import { contentInventoryRoute } from './routes/contentInventory.js';
 import { errorReportingProxyRoute } from './routes/errorReportingProxy.js';
 import { experimentsRoute } from './routes/experiments.js';
 import { gatewayRoute } from './routes/gateway.js';
@@ -52,6 +66,8 @@ import { promotionsRoute } from './routes/promotions.js';
 import { questsDecisionRoute } from './routes/questsDecision.js';
 import { questsMeRoute } from './routes/questsMe.js';
 import { scienceRoute } from './routes/science.js';
+import { storefrontPromotionsRoute } from './routes/storefrontPromotions.js';
+import { widgetConfigsRoute } from './routes/widgetConfigs.js';
 
 async function registerVersionedApi(app: FastifyInstance, prefix: string): Promise<void> {
   await app.register(
@@ -59,6 +75,7 @@ async function registerVersionedApi(app: FastifyInstance, prefix: string): Promi
       await scoped.register(gatewayRoute);
       await scoped.register(registerRoute);
       await scoped.register(loginRoute);
+      await scoped.register(logoutRoute);
       await scoped.register(conditionalStartRoute);
       await scoped.register(locationMetadataRoute);
       await scoped.register(usernameAttemptUnauthedRoute);
@@ -69,11 +86,19 @@ async function registerVersionedApi(app: FastifyInstance, prefix: string): Promi
       await scoped.register(surveyRoute);
       await scoped.register(entitlementsRoute);
       await scoped.register(applicationEntitlementsRoute);
+      await scoped.register(applicationIdentitiesRoute);
+      await scoped.register(activityStatsRoute);
+      await scoped.register(billingRoute);
+      await scoped.register(meaningfullyOnlineRoute);
+      await scoped.register(recentAvatarsRoute);
       await scoped.register(getMeRoute);
       await scoped.register(getUserProfileRoute);
       await scoped.register(notesRoute);
       await scoped.register(settingsProtoRoute);
       await scoped.register(updateMeRoute);
+      await scoped.register(updateProfileRoute);
+      await scoped.register(disableAccountRoute);
+      await scoped.register(deleteAccountRoute);
       await scoped.register(listRelationshipsRoute);
       await scoped.register(sendFriendRequestRoute);
       await scoped.register(putRelationshipRoute);
@@ -101,6 +126,11 @@ async function registerVersionedApi(app: FastifyInstance, prefix: string): Promi
       await scoped.register(promotionsRoute);
       await scoped.register(questsMeRoute);
       await scoped.register(questsDecisionRoute);
+      await scoped.register(widgetConfigsRoute);
+      await scoped.register(collectiblesShopRoute);
+      await scoped.register(storefrontPromotionsRoute);
+      await scoped.register(contentInventoryRoute);
+      await scoped.register(beakerRoute);
       await scoped.register(scienceRoute);
       await scoped.register(metricsV2Route);
     },
@@ -114,20 +144,37 @@ export async function registerApi(app: FastifyInstance): Promise<void> {
     credentials: true,
   });
 
-  app.setErrorHandler((error, _request, reply) => {
+  app.setErrorHandler((error, request, reply) => {
     if (error instanceof DiscordApiError) {
       return reply.status(error.statusCode).send(error.toJSON());
     }
 
-    return reply.status(500).send({
+    request.log.error(error);
+    const statusCode =
+      typeof (error as { statusCode?: unknown }).statusCode === 'number'
+        ? (error as { statusCode: number }).statusCode
+        : 500;
+
+    const message =
+      statusCode === 500
+        ? 'Internal Server Error'
+        : error instanceof Error
+          ? error.message
+          : 'Request Error';
+
+    return reply.status(statusCode).send({
       code: 0,
-      message: 'Internal Server Error',
+      message,
     });
   });
 
   await app.register(healthRoute);
   await app.register(errorReportingProxyRoute);
   await app.register(getAttachmentRoute);
+  await app.register(getAvatarRoute);
+  await app.register(getBannerRoute);
+  await app.register(getAvatarRoute, { prefix: '/api' });
+  await app.register(getBannerRoute, { prefix: '/api' });
   await registerVersionedApi(app, '/api/v9');
   await registerVersionedApi(app, '/api/v10');
   await registerClient(app);

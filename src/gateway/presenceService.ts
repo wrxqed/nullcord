@@ -1,13 +1,13 @@
 import { listFriendIds } from '../relationships/repository.js';
+import { findUserById, findUsersByIds } from '../users/userRepository.js';
+import { serializePublicUser, type PublicUserDto } from '../users/userSerializer.js';
 import type { GatewaySession } from './session.js';
 import { dispatchToUser, dispatchToUsers, getUserSessions } from './sessionRegistry.js';
 
 export type PresenceStatus = 'online' | 'idle' | 'dnd' | 'invisible' | 'offline';
 
 export interface PresenceDto {
-  user: {
-    id: string;
-  };
+  user: PublicUserDto | { id: string };
   status: PresenceStatus;
   activities: unknown[];
   client_status: {
@@ -76,9 +76,14 @@ function resolveAggregatePresence(userId: string): {
   };
 }
 
-function buildPresenceDto(userId: string, status: PresenceStatus, activities: unknown[]): PresenceDto {
+function buildPresenceDto(
+  userId: string,
+  status: PresenceStatus,
+  activities: unknown[],
+  publicUser?: PublicUserDto,
+): PresenceDto {
   return {
-    user: { id: userId },
+    user: publicUser ?? { id: userId },
     status,
     activities: status === 'offline' ? [] : activities,
     client_status: status === 'offline' || status === 'invisible' ? {} : { web: status },
@@ -87,6 +92,8 @@ function buildPresenceDto(userId: string, status: PresenceStatus, activities: un
 
 export function getFriendsPresences(userId: string): PresenceDto[] {
   const friendIds = listFriendIds(userId);
+  const friends = findUsersByIds(friendIds);
+  const friendMap = new Map(friends.map((u) => [u.id, serializePublicUser(u)]));
   const presences: PresenceDto[] = [];
 
   for (const friendId of friendIds) {
@@ -94,7 +101,9 @@ export function getFriendsPresences(userId: string): PresenceDto[] {
     if (resolved.publicStatus === 'offline') {
       continue;
     }
-    presences.push(buildPresenceDto(friendId, resolved.publicStatus, resolved.activities));
+    presences.push(
+      buildPresenceDto(friendId, resolved.publicStatus, resolved.activities, friendMap.get(friendId)),
+    );
   }
 
   return presences;
@@ -103,14 +112,21 @@ export function getFriendsPresences(userId: string): PresenceDto[] {
 export function broadcastPresenceUpdate(userId: string): void {
   const resolved = resolveAggregatePresence(userId);
   const friendIds = listFriendIds(userId);
+  const userRecord = findUserById(userId);
+  const publicUser = userRecord ? serializePublicUser(userRecord) : undefined;
 
   if (friendIds.length > 0) {
-    const publicDto = buildPresenceDto(userId, resolved.publicStatus, resolved.activities);
+    const publicDto = buildPresenceDto(
+      userId,
+      resolved.publicStatus,
+      resolved.activities,
+      publicUser,
+    );
     dispatchToUsers(friendIds, 'PRESENCE_UPDATE', publicDto);
   }
 
   if (resolved.ownStatus !== 'offline') {
-    const ownDto = buildPresenceDto(userId, resolved.ownStatus, resolved.activities);
+    const ownDto = buildPresenceDto(userId, resolved.ownStatus, resolved.activities, publicUser);
     dispatchToUser(userId, 'PRESENCE_UPDATE', ownDto);
   }
 }

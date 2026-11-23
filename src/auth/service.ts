@@ -4,6 +4,7 @@ import {
   createUser,
   findUserByEmail,
   findUserByUsername,
+  updateUser,
 } from '../users/userRepository.js';
 import { hashPassword, verifyPassword } from './password.js';
 import { generateToken } from './token.js';
@@ -19,6 +20,7 @@ export interface RegisterInput {
 export interface LoginInput {
   login?: unknown;
   password?: unknown;
+  undelete?: unknown;
 }
 
 export interface LoginResult {
@@ -105,6 +107,14 @@ export function loginUser(input: LoginInput): LoginResult {
   const user = findUserByEmail(login);
   if (!user || !verifyPassword(password, user.password_hash)) {
     throw createInvalidLoginError();
+  }
+
+  if (user.disabled) {
+    if (input.undelete) {
+      updateUser(user.id, { disabled: 0 });
+    } else {
+      throw new DiscordApiError(400, 20013, 'This account has been disabled.');
+    }
   }
 
   return {

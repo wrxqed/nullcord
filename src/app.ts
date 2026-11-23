@@ -8,6 +8,7 @@ export async function createApp(): Promise<FastifyInstance> {
 
   const app = Fastify({
     logger: true,
+    bodyLimit: 15 * 1024 * 1024,
   });
 
   await registerApi(app);

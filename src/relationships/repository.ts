@@ -25,6 +25,20 @@ export function listFriendIds(userId: string): string[] {
   return rows.map((row) => row.to_id);
 }
 
+export function listMutualFriendIds(userA: string, userB: string): string[] {
+  const db = getDatabase();
+  const rows = db
+    .prepare(`
+      SELECT r1.to_id
+      FROM relationships r1
+      JOIN relationships r2 ON r2.to_id = r1.to_id
+      WHERE r1.from_id = ? AND r1.type = 1
+        AND r2.from_id = ? AND r2.type = 1
+    `)
+    .all(userA, userB) as Array<{ to_id: string }>;
+  return rows.map((row) => row.to_id);
+}
+
 export function upsertRelationship(
   fromId: string,
   toId: string,

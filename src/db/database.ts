@@ -25,7 +25,12 @@ function applySchema(db: DatabaseSync): void {
       global_name TEXT,
       password_hash TEXT NOT NULL,
       avatar TEXT,
+      banner TEXT,
+      accent_color INTEGER,
+      bio TEXT,
+      pronouns TEXT,
       date_of_birth TEXT,
+      disabled INTEGER NOT NULL DEFAULT 0,
       bot INTEGER NOT NULL DEFAULT 0,
       verified INTEGER NOT NULL DEFAULT 1,
       locale TEXT NOT NULL DEFAULT 'en-US',
@@ -123,6 +128,11 @@ function applySchema(db: DatabaseSync): void {
   `);
 
   ensureColumn(db, 'users', 'date_of_birth', 'TEXT');
+  ensureColumn(db, 'users', 'banner', 'TEXT');
+  ensureColumn(db, 'users', 'accent_color', 'INTEGER');
+  ensureColumn(db, 'users', 'bio', 'TEXT');
+  ensureColumn(db, 'users', 'pronouns', 'TEXT');
+  ensureColumn(db, 'users', 'disabled', 'INTEGER NOT NULL DEFAULT 0');
   ensureColumn(db, 'channels', 'owner_id', 'TEXT');
   ensureColumn(db, 'messages', 'referenced_message_id', 'TEXT');
   ensureColumn(db, 'message_attachments', 'width', 'INTEGER');
